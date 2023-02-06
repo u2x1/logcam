@@ -1,0 +1,33 @@
+name: logcam
+description: A new Flutter project.
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=2.18.4 <3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.2
+  camera: ^0.10.3
+  video_player: ^2.5.1
+  ffmpeg_kit_flutter_full_gpl: ^5.1.0
+  open_filex: ^4.3.2
+  share_plus: ^6.3.0
+  media_store_plus: ^0.0.5
+  permission_handler: ^10.2.0
+  wakelock: ^0.6.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^2.0.0
+
+flutter:
+
+  uses-material-design: true
