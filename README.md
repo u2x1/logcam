@@ -8,7 +8,7 @@ audio bitrate is forced to 8 kbps with `acc` encoding (as reference, a high-qual
 
 any media saved will be processed by ffmpeg first.
 
-ffmpeg command for video:
+ffmpeg command for image:
 
 ```
 FFmpegKit.execute("-i ${file.path}"
@@ -19,7 +19,7 @@ FFmpegKit.execute("-i ${file.path}"
         ": shadowcolor=black: shadowx=1: shadowy=1\""
 ```
 
-as well as for image:
+as well as for video:
 
 ```
 FFmpegKit.execute("-i ${file.path}"
@@ -32,4 +32,4 @@ FFmpegKit.execute("-i ${file.path}"
         " -c:a aac -b:a 8k"
 ```
 
-development are under NixOS, type `nix-shell shell.nix` to initialize the development shell painlessly.
+development are under NixOS, type `nix-shell shell.nix` to initialize the shell painlessly.
