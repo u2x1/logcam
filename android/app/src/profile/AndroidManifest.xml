@@ -5,15 +5,4 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> <!-- To read images created by other apps -->
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /> <!-- To read audios created by other apps -->
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" /> <!-- To read vidoes created by other apps -->
-
-    <uses-permission
-        android:name="android.permission.READ_EXTERNAL_STORAGE" <!-- To read all files until API level 32 -->
-        android:maxSdkVersion="32" />
-
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE" <!-- To write all files until API level 29. We will MediaStore from API level 30 -->
-        android:maxSdkVersion="29" />
 </manifest>

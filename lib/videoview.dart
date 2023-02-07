@@ -3,12 +3,14 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:media_store_plus/media_store_plus.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'main.dart';
+
+final mediaStore = MediaStore();
 
 class VideoViewPage extends StatefulWidget {
   const VideoViewPage({super.key});
@@ -27,8 +29,7 @@ class _VideoViewPageState extends State<VideoViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    SystemChrome.setPreferredOrientations(
-        [DeviceOrientation.portraitDown, DeviceOrientation.portraitUp]);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     return Scaffold(
       appBar: AppBar(
         title: const Text('库'),
@@ -39,8 +40,6 @@ class _VideoViewPageState extends State<VideoViewPage> {
 
   @override
   void dispose() {
-    SystemChrome.setPreferredOrientations(
-        [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
     super.dispose();
   }
 }
@@ -54,9 +53,9 @@ class VideoList extends StatefulWidget {
   }
 }
 
-getFileSize(FileSystemEntity file, int decimals) {
+getFileSize(String file, int decimals) {
   try {
-    int bytes = File(file.path).lengthSync();
+    int bytes = File(file).lengthSync();
     if (bytes <= 0) return "0 B";
     const suffixes = ["B", "K", "M", "G", "T", "P", "E", "Z", "Y"];
     var i = (log(bytes) / log(1024)).floor();
@@ -67,32 +66,47 @@ getFileSize(FileSystemEntity file, int decimals) {
 }
 
 class _VideoListState extends State<VideoList> {
-  _VideoListState();
+  @override
+  void dispose() {
+    for (final kid in kids) {
+      if (kid.deleted) {
+        try {
+          if (File(kid.file).existsSync()) {
+            File(kid.file).deleteSync();
+          }
+        } catch (e) {
+          Clipboard.setData(ClipboardData(text: e.toString()));
+        }
+      }
+    }
+    super.dispose();
+  }
 
   void showInSnackBar(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  final List<Widget> kids = <Widget>[];
-  final List<bool> kidsRemoved = <bool>[];
+  final List<VideoCard> kids = <VideoCard>[];
+  final List<bool> kidDeleled = <bool>[];
 
   @override
   Widget build(BuildContext context) {
-    const storagePath = 'DCIM/LogCam';
-    const dcimPath = '/storage/emulated/0/$storagePath';
     final dir = Directory(dcimPath);
     if (dir.existsSync()) {
       int idx = 0;
-      for (final file in Directory(dcimPath).listSync().reversed) {
-        if (!file.path.endsWith('mp4') && !file.path.endsWith('jpg')) {
+      final fileList = Directory(dcimPath).listSync().toList()
+        ..sort(
+            (l, r) => l.statSync().modified.compareTo(r.statSync().modified));
+      final filePathList = fileList.map((f) => f.path).toList();
+      for (final file in filePathList.reversed) {
+        if (!file.endsWith('mp4') && !file.endsWith('jpg')) {
           continue;
         }
-        kidsRemoved.add(false);
-        kids.add(AbsorbPointer(
-          absorbing: kidsRemoved[idx],
-          child: VideoCard(idx, file, showInSnackBar),
-        ));
+        kidDeleled.add(false);
+        kids.add(
+          VideoCard(idx, file, showInSnackBar),
+        );
         idx++;
       }
     }
@@ -103,12 +117,14 @@ class _VideoListState extends State<VideoList> {
 }
 
 class VideoCard extends StatefulWidget {
-  late final int idx;
-  late final FileSystemEntity file;
+  late final String file;
   late final Function showInSnackBar;
-  VideoCard(int i, FileSystemEntity f, Function ssb, {super.key}) {
-    idx = i;
+  late final int idx;
+  bool deleted = false;
+
+  VideoCard(int i, String f, Function ssb, {super.key}) {
     file = f;
+    idx = i;
     showInSnackBar = ssb;
   }
 
@@ -117,39 +133,23 @@ class VideoCard extends StatefulWidget {
 }
 
 class VideoCardState extends State<VideoCard> {
-  bool disabled = false;
-
-  @override
-  void dispose() {
-    if (disabled) {
-      try {
-        if (widget.file.existsSync()) {
-          widget.file.deleteSync();
-        }
-      } catch (e) {
-        widget.showInSnackBar('删除的过程中发生了错误..错误信息已经复制到剪切板，请把它发给我!');
-        widget.showInSnackBar('你也可以手动到DCIM/LogCam中删除文件');
-        Clipboard.setData(ClipboardData(text: e.toString()));
-      }
-    }
-    super.dispose();
-  }
-
+  late bool disabled;
   @override
   Widget build(BuildContext context) {
+    disabled = widget.deleted;
     return Card(
-      color: disabled ? Colors.grey : Colors.white,
+      color: widget.deleted ? Colors.grey : Colors.white,
       child: Column(
         children: <Widget>[
           ListTile(
             dense: true,
             visualDensity: VisualDensity.compact,
-            leading: Icon(
-                widget.file.path.endsWith('mp4') ? Icons.movie : Icons.image),
+            leading:
+                Icon(widget.file.endsWith('mp4') ? Icons.movie : Icons.image),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${widget.file.path.split('/').last.split('.').first}'
+                Text('${widget.file.split('/').last.split('.').first}'
                     ' (${getFileSize(widget.file, 1)})'),
                 disabled
                     ? IconButton(
@@ -157,6 +157,7 @@ class VideoCardState extends State<VideoCard> {
                         onPressed: () {
                           setState(() {
                             disabled = false;
+                            widget.deleted = false;
                           });
                         },
                         icon: const Icon(Icons.undo))
@@ -169,19 +170,38 @@ class VideoCardState extends State<VideoCard> {
                                 value: 2, child: Text("打开")),
                             const PopupMenuItem<int>(
                                 value: 3, child: Text("删除")),
+                            const PopupMenuItem<int>(
+                                value: 4, child: Text("保存到相册")),
                           ];
                         },
                         tooltip: '更多',
                         icon: const Icon(Icons.more_horiz_outlined),
-                        onSelected: (value) {
-                          if (value == 3) {
+                        onSelected: (value) async {
+                          if (value == 1) {
+                            Share.shareXFiles(<XFile>[XFile(widget.file)]);
+                          } else if (value == 2) {
+                            OpenFilex.open(widget.file);
+                          } else if (value == 3) {
                             setState(() {
                               disabled = true;
+                              widget.deleted = true;
                             });
-                          } else if (value == 1) {
-                            Share.shareXFiles(<XFile>[XFile(widget.file.path)]);
-                          } else if (value == 2) {
-                            OpenFilex.open(widget.file.path);
+                          } else if (value == 4) {
+                            bool status;
+                            if (widget.file.endsWith('mp4')) {
+                              status = await mediaStore.saveFile(
+                                tempFilePath: widget.file,
+                                dirType: DirType.video,
+                                dirName: DirName.dcim,
+                              );
+                            } else {
+                              status = await mediaStore.saveFile(
+                                tempFilePath: widget.file,
+                                dirType: DirType.photo,
+                                dirName: DirName.dcim,
+                              );
+                            }
+                            widget.showInSnackBar(status ? '保存成功' : '保存失败');
                           }
                         },
                       ),
@@ -191,10 +211,18 @@ class VideoCardState extends State<VideoCard> {
           Container(
               child: disabled
                   ? null
-                  : widget.file.path.endsWith('mp4')
-                      ? VideoWidget(File(widget.file.path))
-                      : Image(
-                          image: FileImage(File(widget.file.path)),
+                  : widget.file.endsWith('mp4')
+                      ? VideoWidget(File(widget.file))
+                      : Container(
+                          margin: const EdgeInsets.all(10),
+                          decoration: const BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(color: Colors.black, blurRadius: 10),
+                            ],
+                          ),
+                          child: Image(
+                            image: FileImage(File(widget.file)),
+                          ),
                         ))
         ],
       ),

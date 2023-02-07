@@ -9,16 +9,16 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:logcam/ffmpeg.dart';
 import 'package:logcam/videoview.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
-import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:media_store_plus/media_store_plus.dart';
 import 'package:wakelock/wakelock.dart';
 
-const storagePath = 'DCIM/LogCam';
-const dcimpath = '/storage/emulated/0/$storagePath';
+late String dcimPath;
 
 /// Camera example home widget.
 class CameraExampleHome extends StatefulWidget {
@@ -29,22 +29,6 @@ class CameraExampleHome extends StatefulWidget {
   State<CameraExampleHome> createState() {
     return _CameraExampleHomeState();
   }
-}
-
-/// Returns a suitable camera icon for [direction].
-IconData getCameraLensIcon(CameraLensDirection direction) {
-  switch (direction) {
-    case CameraLensDirection.back:
-      return Icons.camera_rear;
-    case CameraLensDirection.front:
-      return Icons.camera_front;
-    case CameraLensDirection.external:
-      return Icons.camera;
-  }
-  // This enum is from a different package, so a new value could be added at
-  // any time. The example should keep working if that happens.
-  // ignore: dead_code
-  return Icons.camera;
 }
 
 void _logError(String code, String? message) {
@@ -62,8 +46,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   VoidCallback? videoPlayerListener;
   bool enableAudio = true;
   bool isProcessing = false;
-  late AnimationController _flashModeControlRowAnimationController;
-  late AnimationController _exposureModeControlRowAnimationController;
   double _minAvailableZoom = 1.0;
   double _maxAvailableZoom = 1.0;
   double _currentScale = 1.0;
@@ -72,30 +54,26 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   // Counting pointers (number of user fingers on screen)
   int _pointers = 0;
 
+  int orientation = 0;
+  static const oris = [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.landscapeLeft,
+  ];
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    SystemChrome.setPreferredOrientations([oris[orientation]]);
 
-    _flashModeControlRowAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _exposureModeControlRowAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
+    if (_cameras.isNotEmpty) {
+      onSwitchCameraButtonPressed();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _flashModeControlRowAnimationController.dispose();
-    _exposureModeControlRowAnimationController.dispose();
     super.dispose();
   }
 
@@ -120,9 +98,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // appBar: AppBar(
-      //   title: const Text('Camera example'),
-      // ),
       body: Row(
         children: <Widget>[
           Expanded(
@@ -136,7 +111,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
                           : isProcessing
                               ? Colors.green
                               : Colors.grey,
-                  width: 3.0,
+                  width: isProcessing
+                      ? 9
+                      : controller != null && controller!.value.isRecordingVideo
+                          ? 3.0
+                          : 6.0,
                 ),
               ),
               child: Padding(
@@ -159,7 +138,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
     if (cameraController == null || !cameraController.value.isInitialized) {
       return const Text(
-        '切换你的摄像头(在右上角!)',
+        '等待摄像头',
         style: TextStyle(
           color: Colors.white,
           fontSize: 24.0,
@@ -170,18 +149,20 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       return Listener(
         onPointerDown: (_) => _pointers++,
         onPointerUp: (_) => _pointers--,
-        child: CameraPreview(
-          controller!,
-          child: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onScaleStart: _handleScaleStart,
-              onScaleUpdate: _handleScaleUpdate,
-              onTapDown: (TapDownDetails details) =>
-                  onViewFinderTap(details, constraints),
-            );
-          }),
+        child: Center(
+          child: CameraPreview(
+            controller!,
+            child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onScaleStart: _handleScaleStart,
+                onScaleUpdate: _handleScaleUpdate,
+                onTapDown: (TapDownDetails details) =>
+                    onViewFinderTap(details, constraints),
+              );
+            }),
+          ),
         ),
       );
     }
@@ -211,8 +192,27 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: <Widget>[
         IconButton(
+            tooltip: '库',
+            icon: const Icon(Icons.video_file),
+            color: Colors.blue.shade900,
+            onPressed: (() async {
+              await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: ((context) => const VideoViewPage())));
+              SystemChrome.setPreferredOrientations([oris[orientation]]);
+            })),
+        const SizedBox(
+          height: 1,
+          width: 25,
+          child: Divider(
+            thickness: 0.5,
+            color: Colors.black,
+          ),
+        ),
+        IconButton(
           icon: const Icon(Icons.cameraswitch),
-          color: Colors.blue,
+          color: Colors.cyan,
           tooltip: '切换摄像头',
           onPressed: _cameras.isNotEmpty ? onSwitchCameraButtonPressed : null,
         ),
@@ -243,22 +243,12 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
                       : onStopButtonPressed
                   : null,
         ),
-        const SizedBox(
-          height: 1,
-          width: 25,
-          child: Divider(
-            thickness: 0.5,
-            color: Colors.black,
-          ),
-        ),
         IconButton(
-            tooltip: '库',
-            icon: const Icon(Icons.video_file),
-            color: Colors.blue.shade900,
-            onPressed: (() => Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: ((context) => const VideoViewPage()))))),
+          icon: const Icon(Icons.screen_rotation),
+          color: Colors.black,
+          tooltip: '旋转',
+          onPressed: onRotateScreenButtonPressed,
+        ),
       ],
     );
   }
@@ -289,11 +279,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   Future<void> onNewCameraSelected(CameraDescription cameraDescription) async {
     final CameraController? oldController = controller;
     if (oldController != null) {
-      // `controller` needs to be set to null before getting disposed,
-      // to avoid a race condition when we use the controller that is being
-      // disposed. This happens when camera permission dialog shows up,
-      // which triggers `didChangeAppLifecycleState`, which disposes and
-      // re-creates the controller.
       controller = null;
       await oldController.dispose();
     }
@@ -313,8 +298,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         setState(() {});
       }
       if (cameraController.value.hasError) {
-        showInSnackBar(
-            'Camera error ${cameraController.value.errorDescription}');
+        showInSnackBar('摄像机错误 ${cameraController.value.errorDescription}');
       }
     });
 
@@ -375,30 +359,17 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         final DateTime now = DateTime.now().toLocal();
         startTimeStr =
             '${now.year % 100}-${now.month}-${now.day}_${now.hour};${now.minute};${now.second}';
-        final processPath = '$dcimpath/$startTimeStr.jpg';
+        final processPath = '$dcimPath/$startTimeStr.jpg';
         if (file != null) {
-          FFmpegKit.execute("-i ${file.path}"
-                  " -movflags use_metadata_tags"
-                  " -vf \"drawtext=fontfile=/system/fonts/DroidSansMono.ttf"
-                  ": text='%{localtime\\:%x %X}': fontcolor=white@0.5"
-                  ": x=h/50: y=(h-text_h)-h/50: fontsize=h/25"
-                  ": shadowcolor=black: shadowx=1: shadowy=1\""
-                  " $processPath")
-              .then((session) async {
+          processPic(file.path, processPath,
+              _cameras[selectCam!].lensDirection == CameraLensDirection.front,
+              (session) async {
             if (ReturnCode.isSuccess(await session.getReturnCode())) {
               showInSnackBar('文件已保存至 $processPath');
             } else {
-              showInSnackBar('发生了一些错误');
               final String ret = (await session.getOutput()).toString();
-              showDialog(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                        title: const Text("错误信息"),
-                        content: SingleChildScrollView(
-                            child: ListBody(
-                          children: <Widget>[Text(ret)],
-                        )),
-                      ));
+              Clipboard.setData(ClipboardData(text: ret));
+              showInSnackBar('操作的过程中发生了错误..错误信息已经复制到剪切板，请把它发给我!');
             }
             File(file.path).delete();
           });
@@ -407,7 +378,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     });
   }
 
-  void onSwitchCameraButtonPressed() {
+  void onSwitchCameraButtonPressed() async {
     if (selectCam != null) {
       if (_cameras.length > 1) {
         selectCam = (selectCam! + 1) % _cameras.length;
@@ -448,37 +419,22 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         that.setState(() {
           isProcessing = true;
         });
-        FFmpegKit.execute("-i ${file.path}"
-                " -vcodec libx264 -crf 30"
-                " -movflags use_metadata_tags"
-                " -vf \"drawtext=fontfile=/system/fonts/DroidSansMono.ttf"
-                ": text='%{pts\\:localtime\\:$startTime\\:%x %X}': fontcolor=white@0.5"
-                ": x=h/50: y=(h-text_h)-h/50: fontsize=h/25"
-                ": shadowcolor=black: shadowx=1: shadowy=1\""
-                " -c:a aac -b:a 8k"
-                " $processPath")
-            .then((session) async {
+
+        processVid(file.path, processPath, startTime,
+            _cameras[selectCam!].lensDirection == CameraLensDirection.front,
+            (session) async {
           that.setState(() {
             isProcessing = false;
           });
           if (ReturnCode.isSuccess(await session.getReturnCode())) {
-            final outPath = '$dcimpath/$startTimeStr.mp4';
+            final outPath = '$dcimPath/$startTimeStr.mp4';
             File(processPath).copy(outPath);
             File(processPath).delete();
             File(file.path).delete();
             showInSnackBar('视频已保存至 $outPath');
           } else {
-            showInSnackBar('视频尾处理发生了一些错误。');
-            final String ret = (await session.getOutput()).toString();
-            showDialog(
-                context: context,
-                builder: (_) => AlertDialog(
-                      title: const Text("错误信息"),
-                      content: SingleChildScrollView(
-                          child: ListBody(
-                        children: <Widget>[Text(ret)],
-                      )),
-                    ));
+            Clipboard.setData(ClipboardData(text: await session.getOutput()));
+            showInSnackBar('视频的处理过程中发生了错误..错误信息已经复制到剪切板，请把它发给我!');
           }
         });
       }
@@ -604,6 +560,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     _logError(e.code, e.description);
     showInSnackBar('错误: ${e.code}\n${e.description}');
   }
+
+  void onRotateScreenButtonPressed() {
+    orientation = (orientation + 1) % oris.length;
+    SystemChrome.setPreferredOrientations([oris[orientation]]);
+  }
 }
 
 /// CameraApp is the Main Application.
@@ -625,29 +586,35 @@ final mediaStorePlugin = MediaStore();
 
 Future<void> main() async {
   // Fetch the available cameras before initializing the app.
+  WidgetsFlutterBinding.ensureInitialized();
+
+  List<Permission> permissions = [
+    Permission.storage,
+    Permission.camera,
+    Permission.microphone,
+  ];
+
+  if ((await mediaStorePlugin.getPlatformSDKInt()) >= 33) {
+    permissions.add(Permission.photos);
+    permissions.add(Permission.audio);
+    permissions.add(Permission.videos);
+    permissions.add(Permission.manageExternalStorage);
+  }
+
+  await permissions.request();
+  MediaStore.appFolder = "LogCam";
+
   try {
-    WidgetsFlutterBinding.ensureInitialized();
     _cameras = await availableCameras();
   } on CameraException catch (e) {
     _logError(e.code, e.description);
   }
-  List<Permission> permissions = [
-    Permission.storage,
-  ];
 
-  if (!kIsWeb) {
-    if ((await mediaStorePlugin.getPlatformSDKInt()) >= 33) {
-      permissions.add(Permission.photos);
-      permissions.add(Permission.audio);
-      permissions.add(Permission.videos);
-      permissions.add(Permission.manageExternalStorage);
-    }
-    await permissions.request();
+  final dirs = await getExternalStorageDirectories(type: StorageDirectory.dcim);
+  if (dirs != null) {
+    dcimPath = dirs.first.path;
   }
-  final path = Directory(dcimpath);
-  if (!(await path.exists())) {
-    await path.create();
-  }
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.leanBack);
+
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const CameraApp());
 }

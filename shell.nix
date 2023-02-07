@@ -11,6 +11,7 @@ in pkgs.mkShell {
       build-tools-33-0-0
       platform-tools
       platforms-android-31
+      platforms-android-30
       platforms-android-33
       tools
       patcher-v4
