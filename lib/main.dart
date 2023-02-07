@@ -450,12 +450,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     if (cameraController.value.isRecordingVideo) {
-      // A recording is already started, do nothing.
       return;
     }
 
     try {
-      await cameraController.startVideoRecording();
+      cameraController.startVideoRecording();
       Wakelock.enable();
     } on CameraException catch (e) {
       _showCameraException(e);
@@ -471,7 +470,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     if (cameraController.value.isTakingPicture) {
-      // A capture is already pending, do nothing.
       return null;
     }
 
@@ -524,19 +522,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
     try {
       await cameraController.resumeVideoRecording();
-    } on CameraException catch (e) {
-      _showCameraException(e);
-      rethrow;
-    }
-  }
-
-  Future<void> setFlashMode(FlashMode mode) async {
-    if (controller == null) {
-      return;
-    }
-
-    try {
-      await controller!.setFlashMode(mode);
     } on CameraException catch (e) {
       _showCameraException(e);
       rethrow;
