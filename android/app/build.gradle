@@ -45,10 +45,10 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "org.u2x1.logcam"
-        minSdkVersion 25
+        minSdkVersion 26
         targetSdkVersion 33
         versionCode 1
-        versionName '2.3'
+        versionName '3.0'
     }
 
     buildTypes {

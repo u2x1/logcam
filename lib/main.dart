@@ -11,14 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logcam/ffmpeg.dart';
 import 'package:logcam/videoview.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:media_store_plus/media_store_plus.dart';
 import 'package:wakelock/wakelock.dart';
 
-late String dcimPath;
+const String dcimPath = '/storage/emulated/0/DCIM/LogCam';
 
 /// Camera example home widget.
 class CameraExampleHome extends StatefulWidget {
@@ -29,11 +28,6 @@ class CameraExampleHome extends StatefulWidget {
   State<CameraExampleHome> createState() {
     return _CameraExampleHomeState();
   }
-}
-
-void _logError(String code, String? message) {
-  // ignore: avoid_print
-  print('Error: $code${message == null ? '' : '\nError Message: $message'}');
 }
 
 class _CameraExampleHomeState extends State<CameraExampleHome>
@@ -56,8 +50,8 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
   int orientation = 0;
   static const oris = [
-    DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
+    DeviceOrientation.portraitUp,
   ];
 
   @override
@@ -105,18 +99,13 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
               decoration: BoxDecoration(
                 color: Colors.black,
                 border: Border.all(
-                  color:
-                      controller != null && controller!.value.isRecordingVideo
-                          ? Colors.redAccent
-                          : isProcessing
-                              ? Colors.green
-                              : Colors.grey,
-                  width: isProcessing
-                      ? 9
-                      : controller != null && controller!.value.isRecordingVideo
-                          ? 3.0
-                          : 6.0,
-                ),
+                    color:
+                        controller != null && controller!.value.isRecordingVideo
+                            ? Colors.redAccent
+                            : isProcessing
+                                ? Colors.green
+                                : Colors.grey,
+                    width: 3.0),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(1.0),
@@ -136,10 +125,12 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   Widget _cameraPreviewWidget() {
     final CameraController? cameraController = controller;
 
-    if (cameraController == null || !cameraController.value.isInitialized) {
-      return const Text(
-        '等待摄像头',
-        style: TextStyle(
+    if (isProcessing ||
+        cameraController == null ||
+        !cameraController.value.isInitialized) {
+      return Text(
+        '等待${isProcessing ? '视频处理' : '摄像头'}',
+        style: const TextStyle(
           color: Colors.white,
           fontSize: 24.0,
           fontWeight: FontWeight.w900,
@@ -184,7 +175,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     await controller!.setZoomLevel(_currentScale);
   }
 
-  /// Display the control bar with buttons to take pictures and record videos.
+  bool hasNewContent = false;
   Widget _captureControlRowWidget() {
     final CameraController? cameraController = controller;
 
@@ -193,13 +184,16 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       children: <Widget>[
         IconButton(
             tooltip: '库',
-            icon: const Icon(Icons.video_file),
-            color: Colors.blue.shade900,
+            icon: Icon(hasNewContent ? Icons.new_releases : Icons.video_file),
+            color: hasNewContent ? Colors.orange : Colors.blue.shade900,
             onPressed: (() async {
               await Navigator.push(
                   context,
                   MaterialPageRoute(
                       builder: ((context) => const VideoViewPage())));
+              setState(() {
+                hasNewContent = false;
+              });
               SystemChrome.setPreferredOrientations([oris[orientation]]);
             })),
         const SizedBox(
@@ -256,9 +250,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   String timestamp() => DateTime.now().millisecondsSinceEpoch.toString();
   double timestampInt() => DateTime.now().millisecondsSinceEpoch / 1000;
 
-  void showInSnackBar(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+  void showInSnackBar(String message, {int duration = 4000}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      duration: Duration(milliseconds: duration),
+    ));
   }
 
   void onViewFinderTap(TapDownDetails details, BoxConstraints constraints) {
@@ -285,7 +281,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
     final CameraController cameraController = CameraController(
       cameraDescription,
-      kIsWeb ? ResolutionPreset.max : ResolutionPreset.low,
+      kIsWeb ? ResolutionPreset.max : ResolutionPreset.medium,
       enableAudio: enableAudio,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -317,7 +313,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     } on CameraException catch (e) {
       switch (e.code) {
         case 'CameraAccessDenied':
-          showInSnackBar('没权限我录不了视频啊崽种');
+          showInSnackBar('没有摄像头权限捏');
           break;
         case 'CameraAccessDeniedWithoutPrompt':
           // iOS only
@@ -349,6 +345,10 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
   }
 
+  String getTimeStr(DateTime now) {
+    return '${now.year % 100}-${now.month}-${now.day}_${now.hour};${now.minute};${now.second}';
+  }
+
   void onTakePictureButtonPressed() {
     takePicture().then((XFile? file) {
       if (mounted) {
@@ -357,15 +357,16 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
           videoController = null;
         });
         final DateTime now = DateTime.now().toLocal();
-        startTimeStr =
-            '${now.year % 100}-${now.month}-${now.day}_${now.hour};${now.minute};${now.second}';
+        startTimeStr = getTimeStr(now);
         final processPath = '$dcimPath/$startTimeStr.jpg';
         if (file != null) {
           processPic(file.path, processPath,
               _cameras[selectCam!].lensDirection == CameraLensDirection.front,
               (session) async {
             if (ReturnCode.isSuccess(await session.getReturnCode())) {
-              showInSnackBar('文件已保存至 $processPath');
+              setState(() {
+                hasNewContent = true;
+              });
             } else {
               final String ret = (await session.getOutput()).toString();
               Clipboard.setData(ClipboardData(text: ret));
@@ -402,8 +403,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       }
       startTime = timestampInt();
       final DateTime now = DateTime.now().toLocal();
-      startTimeStr =
-          '${now.year % 100}-${now.month}-${now.day}_${now.hour};${now.minute};${now.second}';
+      startTimeStr = getTimeStr(now);
     });
   }
 
@@ -414,24 +414,25 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         setState(() {});
       }
       if (file != null) {
-        final String processPath = '${file.path}-out.mp4';
-        showInSnackBar('我们正在处理你的视频!请稍等...');
+        final String processPath = '$dcimPath/$startTimeStr.mp4';
+
         that.setState(() {
           isProcessing = true;
         });
 
-        processVid(file.path, processPath, startTime,
-            _cameras[selectCam!].lensDirection == CameraLensDirection.front,
+        final isFrontCam =
+            _cameras[selectCam!].lensDirection == CameraLensDirection.front;
+
+        processVid(file.path, processPath, startTime, isFrontCam,
             (session) async {
           that.setState(() {
             isProcessing = false;
           });
           if (ReturnCode.isSuccess(await session.getReturnCode())) {
-            final outPath = '$dcimPath/$startTimeStr.mp4';
-            File(processPath).copy(outPath);
-            File(processPath).delete();
             File(file.path).delete();
-            showInSnackBar('视频已保存至 $outPath');
+            setState(() {
+              hasNewContent = true;
+            });
           } else {
             Clipboard.setData(ClipboardData(text: await session.getOutput()));
             showInSnackBar('视频的处理过程中发生了错误..错误信息已经复制到剪切板，请把它发给我!');
@@ -454,7 +455,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     try {
-      cameraController.startVideoRecording();
+      await cameraController.startVideoRecording();
       Wakelock.enable();
     } on CameraException catch (e) {
       _showCameraException(e);
@@ -542,7 +543,6 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   }
 
   void _showCameraException(CameraException e) {
-    _logError(e.code, e.description);
     showInSnackBar('错误: ${e.code}\n${e.description}');
   }
 
@@ -577,28 +577,20 @@ Future<void> main() async {
     Permission.storage,
     Permission.camera,
     Permission.microphone,
+    Permission.manageExternalStorage,
   ];
 
   if ((await mediaStorePlugin.getPlatformSDKInt()) >= 33) {
     permissions.add(Permission.photos);
     permissions.add(Permission.audio);
     permissions.add(Permission.videos);
-    permissions.add(Permission.manageExternalStorage);
   }
 
   await permissions.request();
-  MediaStore.appFolder = "LogCam";
 
   try {
     _cameras = await availableCameras();
-  } on CameraException catch (e) {
-    _logError(e.code, e.description);
-  }
-
-  final dirs = await getExternalStorageDirectories(type: StorageDirectory.dcim);
-  if (dirs != null) {
-    dcimPath = dirs.first.path;
-  }
+  } on CameraException catch (_) {}
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const CameraApp());

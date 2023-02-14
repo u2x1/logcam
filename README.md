@@ -2,8 +2,8 @@
 
 a vlog cam, written in flutter
 
-resolution is forced to 240p (320x240)
-audio bitrate is forced to 8 kbps with `acc` encoding (as reference, a high-quality WAV file has an audio bitrate at 1,411 kbps)
+- resolution is forced to 480p (720x480)
+- audio bitrate is forced to 8 kbps with `acc` encoding (as reference, a high-quality WAV file has an audio bitrate at 1,411 kbps)
 
 
 any media saved will be processed by ffmpeg first.
@@ -12,7 +12,6 @@ ffmpeg command for image:
 
 ```
 FFmpegKit.execute("-i ${file.path}"
-        " -movflags use_metadata_tags"
         " -vf \"drawtext=fontfile=/system/fonts/DroidSansMono.ttf"
         ": text='%{localtime\\:%x %X}': fontcolor=white@0.5"
         ": x=h/50: y=(h-text_h)-h/50: fontsize=h/25"

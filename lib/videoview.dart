@@ -3,14 +3,11 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_store_plus/media_store_plus.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'main.dart';
-
-final mediaStore = MediaStore();
 
 class VideoViewPage extends StatefulWidget {
   const VideoViewPage({super.key});
@@ -27,12 +24,46 @@ class _VideoViewPageState extends State<VideoViewPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  late bool? showInGallery;
+
   @override
   Widget build(BuildContext context) {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    showInGallery = File('$dcimPath/.nomedia').existsSync();
     return Scaffold(
       appBar: AppBar(
         title: const Text('库'),
+        actions: [
+          PopupMenuButton(
+            icon: const Icon(Icons.more_horiz),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: StatefulBuilder(
+                  builder: (_, setState) => CheckboxListTile(
+                    value: showInGallery,
+                    onChanged: (value) => setState(() {
+                      try {
+                        if (value != null) {
+                          if (value) {
+                            File('$dcimPath/.nomedia')
+                                .createSync(recursive: true);
+                          } else {
+                            File('$dcimPath/.nomedia').deleteSync();
+                          }
+                          showInGallery = value;
+                        }
+                      } catch (e) {
+                        showInSnackBar('失败!');
+                        Clipboard.setData(ClipboardData(text: e.toString()));
+                      }
+                    }),
+                    title: const Text('在系统相册中隐藏这些文件'),
+                  ),
+                ),
+              ),
+            ],
+          )
+        ],
       ),
       body: const VideoList(),
     );
@@ -66,36 +97,18 @@ getFileSize(String file, int decimals) {
 }
 
 class _VideoListState extends State<VideoList> {
-  @override
-  void dispose() {
-    for (final kid in kids) {
-      if (kid.deleted) {
-        try {
-          if (File(kid.file).existsSync()) {
-            File(kid.file).deleteSync();
-          }
-        } catch (e) {
-          Clipboard.setData(ClipboardData(text: e.toString()));
-        }
-      }
-    }
-    super.dispose();
-  }
-
   void showInSnackBar(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
   final List<VideoCard> kids = <VideoCard>[];
-  final List<bool> kidDeleled = <bool>[];
 
   @override
   Widget build(BuildContext context) {
     final dir = Directory(dcimPath);
     if (dir.existsSync()) {
-      int idx = 0;
-      final fileList = Directory(dcimPath).listSync().toList()
+      final fileList = dir.listSync().toList()
         ..sort(
             (l, r) => l.statSync().modified.compareTo(r.statSync().modified));
       final filePathList = fileList.map((f) => f.path).toList();
@@ -103,28 +116,25 @@ class _VideoListState extends State<VideoList> {
         if (!file.endsWith('mp4') && !file.endsWith('jpg')) {
           continue;
         }
-        kidDeleled.add(false);
         kids.add(
-          VideoCard(idx, file, showInSnackBar),
+          VideoCard(file, showInSnackBar),
         );
-        idx++;
       }
+      return ListView(
+        children: kids,
+      );
+    } else {
+      return const Text("这里空空如也");
     }
-    return ListView(
-      children: kids,
-    );
   }
 }
 
 class VideoCard extends StatefulWidget {
   late final String file;
   late final Function showInSnackBar;
-  late final int idx;
-  bool deleted = false;
 
-  VideoCard(int i, String f, Function ssb, {super.key}) {
+  VideoCard(String f, Function ssb, {super.key}) {
     file = f;
-    idx = i;
     showInSnackBar = ssb;
   }
 
@@ -132,13 +142,14 @@ class VideoCard extends StatefulWidget {
   State<StatefulWidget> createState() => VideoCardState();
 }
 
-class VideoCardState extends State<VideoCard> {
-  late bool disabled;
+class VideoCardState extends State<VideoCard>
+    with AutomaticKeepAliveClientMixin {
+  bool disabled = false;
   @override
   Widget build(BuildContext context) {
-    disabled = widget.deleted;
+    super.build(context);
     return Card(
-      color: widget.deleted ? Colors.grey : Colors.white,
+      color: disabled ? Colors.grey : Colors.white,
       child: Column(
         children: <Widget>[
           ListTile(
@@ -157,7 +168,6 @@ class VideoCardState extends State<VideoCard> {
                         onPressed: () {
                           setState(() {
                             disabled = false;
-                            widget.deleted = false;
                           });
                         },
                         icon: const Icon(Icons.undo))
@@ -170,8 +180,6 @@ class VideoCardState extends State<VideoCard> {
                                 value: 2, child: Text("打开")),
                             const PopupMenuItem<int>(
                                 value: 3, child: Text("删除")),
-                            const PopupMenuItem<int>(
-                                value: 4, child: Text("保存到相册")),
                           ];
                         },
                         tooltip: '更多',
@@ -184,24 +192,7 @@ class VideoCardState extends State<VideoCard> {
                           } else if (value == 3) {
                             setState(() {
                               disabled = true;
-                              widget.deleted = true;
                             });
-                          } else if (value == 4) {
-                            bool status;
-                            if (widget.file.endsWith('mp4')) {
-                              status = await mediaStore.saveFile(
-                                tempFilePath: widget.file,
-                                dirType: DirType.video,
-                                dirName: DirName.dcim,
-                              );
-                            } else {
-                              status = await mediaStore.saveFile(
-                                tempFilePath: widget.file,
-                                dirType: DirType.photo,
-                                dirName: DirName.dcim,
-                              );
-                            }
-                            widget.showInSnackBar(status ? '保存成功' : '保存失败');
                           }
                         },
                       ),
@@ -227,6 +218,23 @@ class VideoCardState extends State<VideoCard> {
         ],
       ),
     );
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void dispose() {
+    if (disabled) {
+      try {
+        if (File(widget.file).existsSync()) {
+          File(widget.file).deleteSync();
+        }
+      } catch (e) {
+        Clipboard.setData(ClipboardData(text: e.toString()));
+      }
+    }
+    super.dispose();
   }
 }
 
